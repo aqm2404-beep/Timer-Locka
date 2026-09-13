@@ -1,4 +1,4 @@
-name: Build TimerLock APK
+name: Build TimerLock Galaxy Store
 
 on:
   workflow_dispatch:
@@ -30,25 +30,40 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build debug APK
-        run: gradle --no-daemon clean assembleDebug --stacktrace
+      - name: Build test APK and Galaxy Store AAB
+        run: gradle --no-daemon clean assembleDebug bundleRelease --stacktrace
 
-      - name: Verify APK
+      - name: Verify debug APK
         run: |
           APK=app/build/outputs/apk/debug/app-debug.apk
           test -s "$APK"
           unzip -t "$APK"
-          unzip -l "$APK" | tee /tmp/timerlock-apk-contents.txt
-          grep -q 'classes.dex' /tmp/timerlock-apk-contents.txt
-          grep -q 'resources.arsc' /tmp/timerlock-apk-contents.txt
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee /tmp/timerlock-badging.txt
           grep -q "package: name='com.timerlock.secure'" /tmp/timerlock-badging.txt
-          grep -q "versionCode='3'" /tmp/timerlock-badging.txt
+          grep -q "versionCode='4'" /tmp/timerlock-badging.txt
+          grep -q "application-label:'TimerLock'" /tmp/timerlock-badging.txt
           sha256sum "$APK"
 
-      - name: Upload TimerLock APK
+      - name: Verify Galaxy Store AAB
+        run: |
+          AAB=app/build/outputs/bundle/release/app-release.aab
+          test -s "$AAB"
+          unzip -t "$AAB"
+          unzip -l "$AAB" | tee /tmp/timerlock-aab-contents.txt
+          grep -q 'base/manifest/AndroidManifest.xml' /tmp/timerlock-aab-contents.txt
+          grep -q 'base/dex/classes.dex' /tmp/timerlock-aab-contents.txt
+          sha256sum "$AAB"
+
+      - name: Upload test APK
         uses: actions/upload-artifact@v4
         with:
-          name: TimerLock-v3-debug-APK
+          name: TimerLock-v4-test-APK
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload Galaxy Store AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: TimerLock-v4-Galaxy-Store-AAB
+          path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
