@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Lock shackle -->
+    <path
+        android:fillColor="#142640"
+        android:pathData="M36,47 L36,35 C36,23 44,16 54,16 C64,16 72,23 72,35 L72,47 L64,47 L64,35 C64,29 60,25 54,25 C48,25 44,29 44,35 L44,47 Z" />
+
+    <!-- Lock body -->
+    <path
+        android:fillColor="#1A2D48"
+        android:pathData="M31,43 C27,43 24,47 24,52 L24,82 C24,88 28,92 34,92 L74,92 C80,92 84,88 84,82 L84,52 C84,47 81,43 77,43 Z" />
+
+    <!-- Clock face -->
+    <path
+        android:fillColor="#10233B"
+        android:strokeColor="#C8D0DB"
+        android:strokeWidth="4"
+        android:pathData="M54,50 C69,50 80,61 80,74 C80,87 69,96 54,96 C39,96 28,87 28,74 C28,61 39,50 54,50 Z" />
+
+    <!-- Blue countdown arc -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#35A7FF"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:pathData="M54,50 C68,50 79,60 80,73" />
+
+    <!-- Clock hands -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#EEF2F7"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:pathData="M54,61 L54,74 L65,81" />
+
+    <!-- Center hub -->
+    <path
+        android:fillColor="#EEF2F7"
+        android:pathData="M54,70 C56.5,70 58.5,72 58.5,74.5 C58.5,77 56.5,79 54,79 C51.5,79 49.5,77 49.5,74.5 C49.5,72 51.5,70 54,70 Z" />
+</vector>
