@@ -1,0 +1,54 @@
+name: Build TimerLock APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build debug APK
+        run: gradle --no-daemon clean assembleDebug --stacktrace
+
+      - name: Verify APK
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          unzip -t "$APK"
+          unzip -l "$APK" | tee /tmp/timerlock-apk-contents.txt
+          grep -q 'classes.dex' /tmp/timerlock-apk-contents.txt
+          grep -q 'resources.arsc' /tmp/timerlock-apk-contents.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee /tmp/timerlock-badging.txt
+          grep -q "package: name='com.timerlock.secure'" /tmp/timerlock-badging.txt
+          grep -q "versionCode='3'" /tmp/timerlock-badging.txt
+          sha256sum "$APK"
+
+      - name: Upload TimerLock APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TimerLock-v3-debug-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
