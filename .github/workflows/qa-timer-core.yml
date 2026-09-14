@@ -41,9 +41,10 @@ jobs:
           arch: x86_64
           disable-animations: true
           script: |
+            echo 'android.useAndroidX=true' >> gradle.properties
             gradle --no-daemon clean assembleDebug assembleDebugAndroidTest --stacktrace
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             adb shell locksettings set-pin 1234
             adb shell dpm set-active-admin --user 0 com.timerlock.secure/.AdminReceiver
-            adb shell am instrument -w com.timerlock.secure.test/android.test.InstrumentationTestRunner
+            adb shell am instrument -w com.timerlock.secure.test/androidx.test.runner.AndroidJUnitRunner
