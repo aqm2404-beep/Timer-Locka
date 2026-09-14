@@ -1,0 +1,66 @@
+name: Publish TimerLock Preview APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'app/**'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - '.github/workflows/publish-release-apk.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build APK
+        run: gradle --no-daemon clean assembleDebug --stacktrace
+
+      - name: Prepare APK
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk TimerLock-v4-preview.apk
+          sha256sum TimerLock-v4-preview.apk > TimerLock-v4-preview.sha256.txt
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v4.0.0-preview
+          name: TimerLock v4 Preview
+          prerelease: true
+          generate_release_notes: false
+          body: |
+            TimerLock v4 preview build for public testing.
+
+            - Free Android app
+            - No ads
+            - No account required
+            - Device Admin is used only for optional screen locking
+          files: |
+            TimerLock-v4-preview.apk
+            TimerLock-v4-preview.sha256.txt
