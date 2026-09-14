@@ -1,16 +1,28 @@
 package com.timerlock.secure;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+
 import android.app.Instrumentation;
 import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.os.ParcelFileDescriptor;
-import android.test.InstrumentationTestCase;
 
-public class TimerBehaviorInstrumentationTest extends InstrumentationTestCase {
+import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.platform.app.InstrumentationRegistry;
 
-    public void testHomeDoesNotLockBeforeExpiryButExpiryLocks() throws Exception {
-        Instrumentation instrumentation = getInstrumentation();
+import org.junit.Test;
+import org.junit.runner.RunWith;
+
+@RunWith(AndroidJUnit4.class)
+public class TimerBehaviorInstrumentationTest {
+
+    @Test
+    public void homeDoesNotLockBeforeExpiryButExpiryLocks() throws Exception {
+        Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
         Context context = instrumentation.getTargetContext();
 
         TimerStore.reset(context);
