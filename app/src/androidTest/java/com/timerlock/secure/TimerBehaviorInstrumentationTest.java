@@ -9,7 +9,8 @@ import android.app.Instrumentation;
 import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
-import android.os.ParcelFileDescriptor;
+import android.os.Build;
+import android.provider.Settings;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -21,31 +22,35 @@ import org.junit.runner.RunWith;
 public class TimerBehaviorInstrumentationTest {
 
     @Test
-    public void homeDoesNotLockBeforeExpiryButExpiryLocks() throws Exception {
+    public void anotherAppRemainsUsableUntilCountdownExpiresThenPhoneLocks() throws Exception {
         Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
         Context context = instrumentation.getTargetContext();
 
         TimerStore.reset(context);
-        TimerStore.start(context, 6_000L);
+        TimerStore.start(context, 8_000L);
         assertEquals(TimerState.ACTIVE, TimerStore.state(context));
 
-        Intent open = new Intent(context, MainActivity.class)
+        Intent openTimer = new Intent(context, MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        context.startActivity(open);
-        Thread.sleep(1000L);
+        context.startActivity(openTimer);
+        Thread.sleep(800L);
 
-        try (ParcelFileDescriptor ignored = instrumentation.getUiAutomation()
-                .executeShellCommand("input keyevent KEYCODE_HOME")) {
-            // Home dispatch is asynchronous.
-        }
+        Intent service = new Intent(context, TimerService.class);
+        if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(service);
+        else context.startService(service);
+        Thread.sleep(700L);
 
+        Intent openSettings = new Intent(Settings.ACTION_SETTINGS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        context.startActivity(openSettings);
         Thread.sleep(1500L);
+
         KeyguardManager keyguard = (KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE);
         assertNotNull(keyguard);
-        assertFalse("Leaving TimerLock while ACTIVE must not lock the phone", keyguard.isKeyguardLocked());
+        assertFalse("Using another app while TimerLock is ACTIVE must not lock the phone", keyguard.isKeyguardLocked());
         assertEquals(TimerState.ACTIVE, TimerStore.state(context));
 
-        long deadline = System.currentTimeMillis() + 8000L;
+        long deadline = System.currentTimeMillis() + 10_000L;
         boolean lockedAtExpiry = false;
         while (System.currentTimeMillis() < deadline) {
             if (keyguard.isKeyguardLocked()) {
@@ -55,7 +60,7 @@ public class TimerBehaviorInstrumentationTest {
             Thread.sleep(200L);
         }
 
-        assertTrue("Phone should lock when the countdown reaches zero", lockedAtExpiry);
+        assertTrue("Phone should lock only when the countdown reaches zero", lockedAtExpiry);
         assertEquals(TimerState.EXPIRED, TimerStore.state(context));
     }
 }
