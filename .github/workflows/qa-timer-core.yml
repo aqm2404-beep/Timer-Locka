@@ -1,0 +1,49 @@
+name: QA Timer Core
+
+on:
+  push:
+    branches: [ repair-timer-core ]
+    paths:
+      - 'app/**'
+      - '.github/workflows/qa-timer-core.yml'
+  workflow_dispatch:
+
+jobs:
+  emulator-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Build and run Android 15 behavior test
+        uses: ReactiveCircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: |
+            gradle --no-daemon clean assembleDebug assembleDebugAndroidTest --stacktrace
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            adb shell locksettings set-pin 1234
+            adb shell dpm set-active-admin --user 0 com.timerlock.secure/.AdminReceiver
+            adb shell am instrument -w com.timerlock.secure.test/android.test.InstrumentationTestRunner
