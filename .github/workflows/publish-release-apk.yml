@@ -28,11 +28,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install Android SDK 35
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
@@ -51,16 +50,19 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v4.0.0-preview
-          name: TimerLock v4 Preview
+          name: TimerLock v4.0.1 Preview
           prerelease: true
           generate_release_notes: false
           body: |
-            TimerLock v4 preview build for public testing.
+            TimerLock v4.0.1 preview build for public testing.
 
             - Free Android app
             - No ads
             - No account required
-            - Device Admin is used only for optional screen locking
+            - Users may use other apps while the timer runs
+            - Device locks only when the countdown reaches 00:00
+            - Android 12+ requires Alarms & reminders access for precise expiry
+            - Device Admin is used to request the Android screen lock at expiry
           files: |
             TimerLock-v4-preview.apk
             TimerLock-v4-preview.sha256.txt
