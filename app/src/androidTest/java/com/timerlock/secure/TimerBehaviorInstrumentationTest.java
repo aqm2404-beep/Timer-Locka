@@ -21,16 +21,17 @@ import org.junit.runner.RunWith;
 public class TimerBehaviorInstrumentationTest {
 
     @Test
-    public void exactAlarmReceiverLocksWhileAnotherAppIsForegroundWithoutTimerService() throws Exception {
+    public void alarmClockReceiverLocksWhileAnotherAppIsForegroundWithoutTimerService() throws Exception {
         Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
         Context context = instrumentation.getTargetContext();
 
         TimerStore.reset(context);
-        assertTrue("Exact alarm access must be granted by the QA harness", TimerStore.hasExactAlarmAccess(context));
+        assertTrue("Exact alarm capability must be available to the QA build", TimerStore.hasExactAlarmAccess(context));
 
-        // Critical: do NOT start MainActivity or TimerService. This test must prove
-        // AlarmManager -> AlarmReceiver -> lockNow independently of the UI/watchdog service.
+        // Critical: do NOT start MainActivity or TimerService. This test proves
+        // AlarmClock -> AlarmReceiver -> lockNow independently of the UI/watchdog service.
         TimerStore.start(context, 8_000L);
+        assertTrue("Critical AlarmClock schedule must succeed", CriticalAlarmScheduler.schedule(context));
         assertEquals(TimerState.ACTIVE, TimerStore.state(context));
 
         Intent openSettings = new Intent(Settings.ACTION_SETTINGS)
@@ -53,12 +54,13 @@ public class TimerBehaviorInstrumentationTest {
             Thread.sleep(200L);
         }
 
-        assertTrue("Exact AlarmReceiver path must lock without reopening TimerLock", lockedAtExpiry);
+        assertTrue("AlarmClock receiver path must lock without reopening TimerLock", lockedAtExpiry);
         assertEquals(TimerState.EXPIRED, TimerStore.state(context));
 
         String log = TimerStore.readLog(context);
-        assertTrue("QA must prove an exact alarm was scheduled", log.contains("EXACT_ALARM_SCHEDULED"));
+        assertTrue("QA must prove the critical AlarmClock path was scheduled", log.contains("ALARM_CLOCK_SCHEDULED"));
         assertTrue("QA must prove AlarmReceiver actually executed", log.contains("ALARM_RECEIVED"));
+        assertTrue("QA must prove receiver acquired its short wake window", log.contains("EXPIRY_WAKELOCK_ACQUIRED"));
         assertTrue("QA must prove expiry was confirmed in background", log.contains("EXPIRY_CONFIRMED"));
         assertTrue("QA must prove lockNow was requested", log.contains("LOCK_REQUESTED"));
         assertTrue("QA must prove lockNow returned successfully", log.contains("LOCK_SUCCESS"));
