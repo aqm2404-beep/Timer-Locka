@@ -9,7 +9,6 @@ import android.app.Instrumentation;
 import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
-import android.os.Build;
 import android.provider.Settings;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -22,23 +21,17 @@ import org.junit.runner.RunWith;
 public class TimerBehaviorInstrumentationTest {
 
     @Test
-    public void anotherAppRemainsUsableUntilCountdownExpiresThenPhoneLocks() throws Exception {
+    public void exactAlarmReceiverLocksWhileAnotherAppIsForegroundWithoutTimerService() throws Exception {
         Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
         Context context = instrumentation.getTargetContext();
 
         TimerStore.reset(context);
+        assertTrue("Exact alarm access must be granted by the QA harness", TimerStore.hasExactAlarmAccess(context));
+
+        // Critical: do NOT start MainActivity or TimerService. This test must prove
+        // AlarmManager -> AlarmReceiver -> lockNow independently of the UI/watchdog service.
         TimerStore.start(context, 8_000L);
         assertEquals(TimerState.ACTIVE, TimerStore.state(context));
-
-        Intent openTimer = new Intent(context, MainActivity.class)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        context.startActivity(openTimer);
-        Thread.sleep(800L);
-
-        Intent service = new Intent(context, TimerService.class);
-        if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(service);
-        else context.startService(service);
-        Thread.sleep(700L);
 
         Intent openSettings = new Intent(Settings.ACTION_SETTINGS)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -47,7 +40,7 @@ public class TimerBehaviorInstrumentationTest {
 
         KeyguardManager keyguard = (KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE);
         assertNotNull(keyguard);
-        assertFalse("Using another app while TimerLock is ACTIVE must not lock the phone", keyguard.isKeyguardLocked());
+        assertFalse("Another app must remain usable before TimerLock expiry", keyguard.isKeyguardLocked());
         assertEquals(TimerState.ACTIVE, TimerStore.state(context));
 
         long deadline = System.currentTimeMillis() + 10_000L;
@@ -60,7 +53,14 @@ public class TimerBehaviorInstrumentationTest {
             Thread.sleep(200L);
         }
 
-        assertTrue("Phone should lock only when the countdown reaches zero", lockedAtExpiry);
+        assertTrue("Exact AlarmReceiver path must lock without reopening TimerLock", lockedAtExpiry);
         assertEquals(TimerState.EXPIRED, TimerStore.state(context));
+
+        String log = TimerStore.readLog(context);
+        assertTrue("QA must prove an exact alarm was scheduled", log.contains("EXACT_ALARM_SCHEDULED"));
+        assertTrue("QA must prove AlarmReceiver actually executed", log.contains("ALARM_RECEIVED"));
+        assertTrue("QA must prove expiry was confirmed in background", log.contains("EXPIRY_CONFIRMED"));
+        assertTrue("QA must prove lockNow was requested", log.contains("LOCK_REQUESTED"));
+        assertTrue("QA must prove lockNow returned successfully", log.contains("LOCK_SUCCESS"));
     }
 }
