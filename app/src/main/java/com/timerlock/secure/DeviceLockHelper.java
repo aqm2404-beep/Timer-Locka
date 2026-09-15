@@ -44,16 +44,26 @@ public final class DeviceLockHelper {
 
     /**
      * Requests the lock through two independent Android mechanisms where available.
-     * Device Admin remains the standard path. Accessibility GLOBAL_ACTION_LOCK_SCREEN
-     * is also fired when enabled so OEM firmware cannot silently accept lockNow()
-     * without actually presenting the lock screen.
+     * Accessibility GLOBAL_ACTION_LOCK_SCREEN is attempted first when enabled because
+     * it asks System UI itself to perform the global lock action. Device Admin lockNow()
+     * is then fired as an independent second path.
      */
     public static boolean lockScreen(Context context) {
         TimerStore.recordLockRequest(context);
 
-        boolean dpmAccepted = false;
         boolean accessibilityAccepted = false;
+        boolean dpmAccepted = false;
         String dpmResult = "not attempted";
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+                && TimerAccessibilityService.isEnabled(context)) {
+            TimerStore.log(context, "LOCK_ACCESSIBILITY_REQUESTED",
+                    "Calling GLOBAL_ACTION_LOCK_SCREEN");
+            accessibilityAccepted = TimerAccessibilityService.requestScreenLock(context);
+        } else if (requiresAccessibilityFallback()) {
+            TimerStore.log(context, "ACCESSIBILITY_LOCK_UNAVAILABLE",
+                    "OEM fallback required but accessibility service is not enabled");
+        }
 
         try {
             DevicePolicyManager dpm = (DevicePolicyManager) context.getSystemService(Context.DEVICE_POLICY_SERVICE);
@@ -79,18 +89,9 @@ public final class DeviceLockHelper {
             TimerStore.log(context, "LOCK_DPM_FAILED", dpmResult);
         }
 
-        // Fire an independent global system lock when the user enabled the service.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
-                && TimerAccessibilityService.isEnabled(context)) {
-            accessibilityAccepted = TimerAccessibilityService.requestScreenLock(context);
-        } else if (requiresAccessibilityFallback()) {
-            TimerStore.log(context, "ACCESSIBILITY_LOCK_UNAVAILABLE",
-                    "OEM fallback required but accessibility service is not enabled");
-        }
-
-        boolean accepted = dpmAccepted || accessibilityAccepted;
-        String result = "DPM=" + dpmAccepted + " (" + dpmResult + ")"
-                + "; Accessibility=" + accessibilityAccepted;
+        boolean accepted = accessibilityAccepted || dpmAccepted;
+        String result = "Accessibility=" + accessibilityAccepted
+                + "; DPM=" + dpmAccepted + " (" + dpmResult + ")";
         TimerStore.recordLockResult(context, (accepted ? "SUCCESS: " : "FAILED: ") + result);
         TimerStore.log(context, accepted ? "LOCK_ACCEPTED" : "LOCK_FAILED", result);
         return accepted;
