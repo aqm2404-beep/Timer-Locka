@@ -19,11 +19,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install Android SDK 35
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
@@ -40,7 +39,8 @@ jobs:
           unzip -t "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee /tmp/timerlock-badging.txt
           grep -q "package: name='com.timerlock.secure'" /tmp/timerlock-badging.txt
-          grep -q "versionCode='4'" /tmp/timerlock-badging.txt
+          grep -q "versionCode='5'" /tmp/timerlock-badging.txt
+          grep -q "versionName='4.0.1'" /tmp/timerlock-badging.txt
           grep -q "application-label:'TimerLock'" /tmp/timerlock-badging.txt
           sha256sum "$APK"
 
@@ -57,13 +57,13 @@ jobs:
       - name: Upload test APK
         uses: actions/upload-artifact@v4
         with:
-          name: TimerLock-v4-test-APK
+          name: TimerLock-v4.0.1-test-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
       - name: Upload Galaxy Store AAB
         uses: actions/upload-artifact@v4
         with:
-          name: TimerLock-v4-Galaxy-Store-AAB
+          name: TimerLock-v4.0.1-Galaxy-Store-AAB
           path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
