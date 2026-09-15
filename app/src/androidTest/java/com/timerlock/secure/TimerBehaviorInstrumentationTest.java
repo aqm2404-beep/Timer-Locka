@@ -21,7 +21,7 @@ import org.junit.runner.RunWith;
 public class TimerBehaviorInstrumentationTest {
 
     @Test
-    public void exactAlarmReceiverLocksWhileAnotherAppIsForegroundWithoutTimerService() throws Exception {
+    public void alarmClockReceiverLocksWhileAnotherAppIsForegroundWithoutTimerService() throws Exception {
         Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
         Context context = instrumentation.getTargetContext();
 
@@ -53,14 +53,16 @@ public class TimerBehaviorInstrumentationTest {
             Thread.sleep(200L);
         }
 
-        assertTrue("Exact AlarmReceiver path must lock without reopening TimerLock", lockedAtExpiry);
+        assertTrue("AlarmReceiver path must lock without reopening TimerLock", lockedAtExpiry);
         assertEquals(TimerState.EXPIRED, TimerStore.state(context));
 
         String log = TimerStore.readLog(context);
-        assertTrue("QA must prove an exact alarm was scheduled", log.contains("EXACT_ALARM_SCHEDULED"));
+        assertTrue("QA must prove the high-priority alarm clock was scheduled", log.contains("ALARM_CLOCK_SCHEDULED"));
+        assertTrue("QA must prove the independent elapsed-time backup was scheduled", log.contains("ELAPSED_BACKUP_SCHEDULED"));
         assertTrue("QA must prove AlarmReceiver actually executed", log.contains("ALARM_RECEIVED"));
         assertTrue("QA must prove expiry was confirmed in background", log.contains("EXPIRY_CONFIRMED"));
-        assertTrue("QA must prove lockNow was requested", log.contains("LOCK_REQUESTED"));
-        assertTrue("QA must prove lockNow returned successfully", log.contains("LOCK_SUCCESS"));
+        assertTrue("QA must prove Device Admin lock was requested", log.contains("LOCK_DPM_REQUESTED"));
+        assertTrue("QA must prove Device Admin accepted the lock request", log.contains("LOCK_DPM_ACCEPTED"));
+        assertTrue("QA must prove at least one lock mechanism accepted the request", log.contains("LOCK_ACCEPTED"));
     }
 }
