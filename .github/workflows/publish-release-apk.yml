@@ -53,21 +53,22 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v4.0.0-preview
-          name: TimerLock v4.1.0 Preview
+          name: TimerLock v4.2.0 Preview
           prerelease: true
           generate_release_notes: false
           body: |
-            TimerLock v4.1.0 preview reliability build for public testing.
+            TimerLock v4.2.0 preview reliability build.
 
-            - Exact AlarmManager is the primary protected expiry trigger
-            - Inexact alarm fallback removed
-            - AlarmReceiver locks directly without requiring TimerLock UI to reopen
-            - Foreground TimerService remains a secondary watchdog
-            - Diagnostic chain records alarm delivery and lockNow result
+            - Primary expiry uses AlarmManager.setAlarmClock(), Android's most critical exact-alarm path
+            - Independent elapsedRealtime setExactAndAllowWhileIdle backup alarm
+            - Device Admin lockNow remains enabled
+            - Lock-only Accessibility GLOBAL_ACTION_LOCK_SCREEN is added as an independent OEM fallback
+            - Xiaomi / Redmi / POCO setup requires the second lock path before a protected timer can start
+            - Accessibility service does not inspect, read, click, type, or collect content from other apps
+            - Foreground TimerService remains an additional watchdog
             - Users may use other apps while the timer runs
             - Device locks only when the countdown reaches 00:00
             - Android 12+ requires Alarms & reminders access
-            - Xiaomi / HyperOS real-device verification remains required
           files: |
             TimerLock-v4-preview.apk
             TimerLock-v4-preview.sha256.txt
