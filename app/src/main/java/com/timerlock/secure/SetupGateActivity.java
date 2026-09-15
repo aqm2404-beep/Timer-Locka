@@ -11,9 +11,10 @@ import android.os.Bundle;
 import android.provider.Settings;
 
 /**
- * Ensures Android exact-alarm access is available before TimerLock is used.
- * TimerLock's core purpose requires expiry to happen at the user-selected time,
- * including while another app is in the foreground or the device is idle.
+ * Ensures TimerLock has the Android capabilities required for reliable expiry.
+ * Xiaomi / Redmi / POCO devices additionally require the lock-only Accessibility
+ * fallback because some OEM builds can accept DevicePolicyManager.lockNow()
+ * without reliably presenting the lock screen from a background receiver.
  */
 public class SetupGateActivity extends Activity {
     private boolean dialogVisible;
@@ -31,19 +32,29 @@ public class SetupGateActivity extends Activity {
     }
 
     private void checkAccessAndContinue() {
-        if (hasExactAlarmAccess()) {
-            Intent open = new Intent(this, MainActivity.class);
-            open.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            startActivity(open);
-            finish();
+        if (!hasExactAlarmAccess()) {
+            showExactAlarmDialog();
             return;
         }
 
+        if (DeviceLockHelper.requiresAccessibilityFallback()
+                && !TimerAccessibilityService.isEnabled(this)) {
+            showAccessibilityDialog();
+            return;
+        }
+
+        Intent open = new Intent(this, MainActivity.class);
+        open.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        startActivity(open);
+        finish();
+    }
+
+    private void showExactAlarmDialog() {
         if (dialogVisible) return;
         dialogVisible = true;
         new AlertDialog.Builder(this)
                 .setTitle("Precise Timer Access Required")
-                .setMessage("TimerLock must be allowed to schedule exact alarms so the phone can lock at exactly 00:00 even when another app is open or the device is idle.\n\nTap Continue, then enable Alarms & reminders for TimerLock.")
+                .setMessage("TimerLock must be allowed to schedule exact alarms so the protected expiry can fire while another app is open or the phone is idle.\n\nTap Continue, then enable Alarms & reminders for TimerLock.")
                 .setCancelable(false)
                 .setNegativeButton("Exit", (d, w) -> {
                     dialogVisible = false;
@@ -52,6 +63,25 @@ public class SetupGateActivity extends Activity {
                 .setPositiveButton("Continue", (d, w) -> {
                     dialogVisible = false;
                     requestExactAlarmAccess();
+                })
+                .setOnDismissListener(d -> dialogVisible = false)
+                .show();
+    }
+
+    private void showAccessibilityDialog() {
+        if (dialogVisible) return;
+        dialogVisible = true;
+        new AlertDialog.Builder(this)
+                .setTitle("Xiaomi Lock Fallback Required")
+                .setMessage("This Xiaomi / Redmi / POCO device needs TimerLock's second lock path for reliable background expiry.\n\nIn Accessibility settings, enable ‘TimerLock Screen Lock’. TimerLock uses this service only for Android's global Lock Screen action. It does not read or control content in other apps.")
+                .setCancelable(false)
+                .setNegativeButton("Exit", (d, w) -> {
+                    dialogVisible = false;
+                    finish();
+                })
+                .setPositiveButton("Open Accessibility", (d, w) -> {
+                    dialogVisible = false;
+                    requestAccessibilityAccess();
                 })
                 .setOnDismissListener(d -> dialogVisible = false)
                 .show();
@@ -72,6 +102,16 @@ public class SetupGateActivity extends Activity {
             Intent intent = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
                     Uri.parse("package:" + getPackageName()));
             startActivity(intent);
+        } catch (Exception e) {
+            Intent fallback = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + getPackageName()));
+            startActivity(fallback);
+        }
+    }
+
+    private void requestAccessibilityAccess() {
+        try {
+            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
         } catch (Exception e) {
             Intent fallback = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                     Uri.parse("package:" + getPackageName()));
