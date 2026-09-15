@@ -31,25 +31,33 @@ public final class DeviceLockHelper {
     }
 
     public static boolean lockScreen(Context context) {
+        TimerStore.recordLockRequest(context);
         try {
             DevicePolicyManager dpm = (DevicePolicyManager) context.getSystemService(Context.DEVICE_POLICY_SERVICE);
             ComponentName admin = new ComponentName(context, AdminReceiver.class);
             if (dpm == null || !dpm.isAdminActive(admin)) {
-                TimerStore.log(context, "SYSTEM_LOCK_UNAVAILABLE", "Device Admin is not active");
+                TimerStore.recordLockResult(context, "FAILED: Device Admin inactive");
+                TimerStore.log(context, "LOCK_FAILED", "Device Admin is not active");
                 return false;
             }
             if (!isDeviceSecure(context)) {
-                TimerStore.log(context, "SYSTEM_LOCK_UNAVAILABLE", "Android secure lock is not configured");
+                TimerStore.recordLockResult(context, "FAILED: secure Android lock missing");
+                TimerStore.log(context, "LOCK_FAILED", "Android secure lock is not configured");
                 return false;
             }
-            TimerStore.log(context, "SYSTEM_LOCK_REQUESTED", "Timer expired or administrator lock test");
+
+            TimerStore.log(context, "LOCK_REQUESTED", "Calling DevicePolicyManager.lockNow()");
             dpm.lockNow();
+            TimerStore.recordLockResult(context, "SUCCESS: lockNow returned without exception");
+            TimerStore.log(context, "LOCK_SUCCESS", "DevicePolicyManager.lockNow() returned without exception");
             return true;
         } catch (SecurityException ex) {
-            TimerStore.log(context, "SYSTEM_LOCK_UNAVAILABLE", "SecurityException");
+            TimerStore.recordLockResult(context, "FAILED: SecurityException");
+            TimerStore.log(context, "LOCK_FAILED", "SecurityException");
             return false;
         } catch (Exception ex) {
-            TimerStore.log(context, "SYSTEM_LOCK_UNAVAILABLE", ex.getClass().getSimpleName());
+            TimerStore.recordLockResult(context, "FAILED: " + ex.getClass().getSimpleName());
+            TimerStore.log(context, "LOCK_FAILED", ex.getClass().getSimpleName());
             return false;
         }
     }
