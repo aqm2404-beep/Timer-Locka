@@ -33,16 +33,18 @@ public class TimerService extends Service {
                 return;
             }
             if (remaining <= 0) {
-                TimerStore.markExpired(TimerService.this, "Foreground timer reached zero");
-                AlarmReceiver.notifyExpired(TimerService.this);
+                TimerStore.log(TimerService.this, "EXPIRY_CONFIRMED", "Foreground watchdog reached zero");
+                TimerStore.markExpired(TimerService.this, "Foreground watchdog reached zero");
                 DeviceLockHelper.lockScreen(TimerService.this);
+                try { AlarmReceiver.notifyExpired(TimerService.this); }
+                catch (Exception ex) { TimerStore.log(TimerService.this, "EXPIRY_NOTIFICATION_FAILED", ex.getClass().getSimpleName()); }
                 stopSelf();
                 return;
             }
             long sec = remaining / 1000L;
             if (lastNotificationSecond == Long.MIN_VALUE || sec <= 60 || sec / 60 != lastNotificationSecond / 60) {
                 NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-                nm.notify(NOTIFICATION_ID, notification(remaining));
+                if (nm != null) nm.notify(NOTIFICATION_ID, notification(remaining));
                 lastNotificationSecond = sec;
             }
             if (sec % 60 == 0) TimerStore.heartbeat(TimerService.this);
@@ -53,20 +55,25 @@ public class TimerService extends Service {
     @Override public void onCreate() {
         super.onCreate();
         createChannel();
+        TimerStore.log(this, "FOREGROUND_SERVICE_CREATED", "TimerService process created");
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
+        TimerStore.log(this, "FOREGROUND_SERVICE_STARTED", "startId=" + startId);
         if (TimerStore.state(this) != TimerState.ACTIVE) {
             stopSelf();
             return START_NOT_STICKY;
         }
         long remaining = TimerStore.remainingMs(this);
         if (remaining <= 0 || remaining == Long.MIN_VALUE) {
-            if (remaining == Long.MIN_VALUE) TimerStore.setRecoveryRequired(this, "Service start integrity failure");
-            else {
+            if (remaining == Long.MIN_VALUE) {
+                TimerStore.setRecoveryRequired(this, "Service start integrity failure");
+            } else {
+                TimerStore.log(this, "EXPIRY_CONFIRMED", "Service start found expired timer");
                 TimerStore.markExpired(this, "Service start found expired timer");
-                AlarmReceiver.notifyExpired(this);
                 DeviceLockHelper.lockScreen(this);
+                try { AlarmReceiver.notifyExpired(this); }
+                catch (Exception ex) { TimerStore.log(this, "EXPIRY_NOTIFICATION_FAILED", ex.getClass().getSimpleName()); }
             }
             stopSelf();
             return START_NOT_STICKY;
@@ -79,6 +86,7 @@ public class TimerService extends Service {
 
     @Override public void onDestroy() {
         handler.removeCallbacks(tick);
+        TimerStore.log(this, "FOREGROUND_SERVICE_DESTROYED", "TimerService destroyed");
         super.onDestroy();
     }
 
@@ -89,7 +97,8 @@ public class TimerService extends Service {
             NotificationChannel c = new NotificationChannel(CHANNEL, "Active timer",
                     NotificationManager.IMPORTANCE_LOW);
             c.setDescription("Persistent TimerLock countdown status");
-            ((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE)).createNotificationChannel(c);
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.createNotificationChannel(c);
         }
     }
 
