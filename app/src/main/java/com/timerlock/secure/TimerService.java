@@ -64,6 +64,13 @@ public class TimerService extends Service {
             stopSelf();
             return START_NOT_STICKY;
         }
+
+        // Upgrade the normal exact alarm to AlarmClock semantics whenever possible.
+        // If this OEM/API refuses it, the exact alarm already scheduled by TimerStore remains.
+        if (!CriticalAlarmScheduler.schedule(this)) {
+            TimerStore.log(this, "ALARM_CLOCK_FALLBACK", "Keeping normal exact alarm + foreground watchdog");
+        }
+
         long remaining = TimerStore.remainingMs(this);
         if (remaining <= 0 || remaining == Long.MIN_VALUE) {
             if (remaining == Long.MIN_VALUE) {
