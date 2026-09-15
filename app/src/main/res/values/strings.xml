@@ -2,5 +2,5 @@
 <resources>
     <string name="app_name">TimerLock</string>
     <string name="device_admin_description">Allows TimerLock to operate as a dedicated-device kiosk when provisioned as Device Owner.</string>
-    <string name="accessibility_description">TimerLock uses Accessibility only to request Android's global Lock Screen action when a protected countdown expires. It does not read, inspect, click, type, or collect content from other apps.</string>
+    <string name="accessibility_description">TimerLock uses Accessibility only to request Android\'s global Lock Screen action when a protected countdown expires. It does not read, inspect, click, type, or collect content from other apps.</string>
 </resources>
