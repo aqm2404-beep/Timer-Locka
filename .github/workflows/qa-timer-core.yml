@@ -41,7 +41,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           script: |
-            set -euo pipefail
+            set -eu
             echo 'android.useAndroidX=true' >> gradle.properties
             gradle --no-daemon clean assembleDebug assembleDebugAndroidTest --stacktrace
             adb install -r app/build/outputs/apk/debug/app-debug.apk
@@ -51,9 +51,11 @@ jobs:
             adb shell settings put secure enabled_accessibility_services com.timerlock.secure/.TimerAccessibilityService
             adb shell settings put secure accessibility_enabled 1
             sleep 2
-            adb shell settings get secure enabled_accessibility_services | tee /tmp/enabled-accessibility.txt
+            adb shell settings get secure enabled_accessibility_services > /tmp/enabled-accessibility.txt
+            cat /tmp/enabled-accessibility.txt
             grep -q 'com.timerlock.secure/.TimerAccessibilityService' /tmp/enabled-accessibility.txt
-            adb shell am instrument -w com.timerlock.secure.test/androidx.test.runner.AndroidJUnitRunner | tee /tmp/timerlock-instrumentation.txt
+            adb shell am instrument -w com.timerlock.secure.test/androidx.test.runner.AndroidJUnitRunner > /tmp/timerlock-instrumentation.txt 2>&1 || true
+            cat /tmp/timerlock-instrumentation.txt
             grep -q 'OK (1 test)' /tmp/timerlock-instrumentation.txt
             if grep -q 'FAILURES!!!' /tmp/timerlock-instrumentation.txt; then
               echo 'Instrumentation reported test failures.' >&2
