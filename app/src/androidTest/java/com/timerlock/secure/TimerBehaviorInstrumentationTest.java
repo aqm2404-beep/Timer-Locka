@@ -21,16 +21,31 @@ import org.junit.runner.RunWith;
 public class TimerBehaviorInstrumentationTest {
 
     @Test
-    public void alarmClockReceiverLocksWhileAnotherAppIsForegroundWithoutTimerService() throws Exception {
+    public void alarmClockAndAccessibilityFallbackLockWhileAnotherAppIsForeground() throws Exception {
         Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
         Context context = instrumentation.getTargetContext();
 
         TimerStore.reset(context);
-        assertTrue("Exact alarm access must be granted by the QA harness", TimerStore.hasExactAlarmAccess(context));
+        assertTrue("Exact alarm capability must exist without a QA appop override",
+                TimerStore.hasExactAlarmAccess(context));
+        assertTrue("Accessibility lock fallback must be enabled by the QA harness",
+                TimerAccessibilityService.isEnabled(context));
 
-        // Critical: do NOT start MainActivity or TimerService. This test proves
-        // AlarmManager -> AlarmReceiver -> physical Android keyguard independently
-        // of the UI and foreground watchdog service.
+        long serviceDeadline = System.currentTimeMillis() + 5_000L;
+        boolean accessibilityConnected = false;
+        while (System.currentTimeMillis() < serviceDeadline) {
+            if (TimerStore.readLog(context).contains("ACCESSIBILITY_CONNECTED")) {
+                accessibilityConnected = true;
+                break;
+            }
+            Thread.sleep(100L);
+        }
+        assertTrue("Accessibility lock service must actually connect before timer test",
+                accessibilityConnected);
+
+        // Critical: do NOT start MainActivity or TimerService. This proves that the
+        // exact alarm receiver can expire in the background and that the OEM fallback
+        // can invoke Android's global lock while another app remains foreground.
         TimerStore.start(context, 8_000L);
         assertEquals(TimerState.ACTIVE, TimerStore.state(context));
 
@@ -54,20 +69,20 @@ public class TimerBehaviorInstrumentationTest {
             Thread.sleep(200L);
         }
 
-        // This is the strongest assertion: Android's real keyguard must actually be locked.
-        assertTrue("AlarmReceiver must physically lock Android without reopening TimerLock", lockedAtExpiry);
+        // Authoritative result: Android's physical keyguard must be locked.
+        assertTrue("Background expiry must physically lock Android", lockedAtExpiry);
         assertEquals(TimerState.EXPIRED, TimerStore.state(context));
 
         String log = TimerStore.readLog(context);
-        assertTrue("QA must prove the high-priority alarm clock was scheduled", log.contains("ALARM_CLOCK_SCHEDULED"));
-        assertTrue("QA must prove the independent elapsed-time backup was scheduled", log.contains("ELAPSED_BACKUP_SCHEDULED"));
-        assertTrue("QA must prove AlarmReceiver actually executed", log.contains("ALARM_RECEIVED"));
-        assertTrue("QA must prove expiry was confirmed in background", log.contains("EXPIRY_CONFIRMED"));
-        assertTrue("QA must prove Device Admin lock was requested", log.contains("LOCK_DPM_REQUESTED"));
-        assertTrue("QA must prove Device Admin returned from lockNow without exception", log.contains("LOCK_DPM_ACCEPTED"));
+        assertTrue("High-priority alarm clock must be scheduled", log.contains("ALARM_CLOCK_SCHEDULED"));
+        assertTrue("Independent elapsed-time backup must be scheduled", log.contains("ELAPSED_BACKUP_SCHEDULED"));
+        assertTrue("AlarmReceiver must execute", log.contains("ALARM_RECEIVED"));
+        assertTrue("Expiry must be confirmed in background", log.contains("EXPIRY_CONFIRMED"));
+        assertTrue("Accessibility global lock must be requested", log.contains("LOCK_ACCESSIBILITY_REQUESTED"));
+        assertTrue("Accessibility global lock action must be accepted", log.contains("ACCESSIBILITY_LOCK_ACCEPTED"));
 
-        // Do not require a log write after lockNow(): an immediate successful device lock can
-        // suspend execution before that later diagnostic write becomes observable. The physical
-        // keyguard assertion above is the authoritative success criterion.
+        // Device Admin remains the independent second path in production code. A log
+        // after the first successful global lock is best-effort because Android may
+        // suspend app execution immediately when the keyguard takes over.
     }
 }
