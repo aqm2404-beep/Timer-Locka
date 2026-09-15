@@ -27,6 +27,10 @@ public final class TimerStore {
     private static final String K_BOOT_COUNT = "boot_count";
     private static final String K_LAST_WALL = "last_wall";
     private static final String K_CLOCK_ANOMALY = "clock_anomaly";
+    private static final String K_LAST_ALARM_SCHEDULED_WALL = "last_alarm_scheduled_wall";
+    private static final String K_LAST_ALARM_RECEIVED_WALL = "last_alarm_received_wall";
+    private static final String K_LAST_LOCK_REQUEST_WALL = "last_lock_request_wall";
+    private static final String K_LAST_LOCK_RESULT = "last_lock_result";
     private static final long CLOCK_BACKWARD_TOLERANCE = 5 * 60_000L;
     private static final int LOG_LIMIT = 500;
 
@@ -46,9 +50,24 @@ public final class TimerStore {
         catch (Exception e) { return TimerState.RECOVERY_REQUIRED; }
     }
 
+    public static boolean hasExactAlarmAccess(Context context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true;
+        try {
+            AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+            return am != null && am.canScheduleExactAlarms();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     public static synchronized void start(Context context, long durationMs) {
         if (durationMs <= 0) throw new IllegalArgumentException("Duration must be > 0");
         if (state(context) != TimerState.IDLE) throw new IllegalStateException("Timer already exists");
+        if (!hasExactAlarmAccess(context)) {
+            log(context, "EXACT_ALARM_PERMISSION_MISSING", "Protected timer start blocked");
+            throw new IllegalStateException("Exact alarm access unavailable");
+        }
+
         long wall = System.currentTimeMillis();
         long elapsed = SystemClock.elapsedRealtime();
         long expiryElapsed = safeAdd(elapsed, durationMs);
@@ -65,8 +84,13 @@ public final class TimerStore {
                 .putLong(K_LAST_WALL, wall)
                 .putBoolean(K_CLOCK_ANOMALY, false)
                 .commit();
-        log(context, "TIMER_STARTED", "Duration=" + durationMs + "ms");
-        schedule(context);
+        log(context, "TIMER_STARTED", "Duration=" + durationMs + "ms; expiryWall=" + expiryWall);
+
+        if (!schedule(context)) {
+            log(context, "START_ABORTED", "Exact alarm could not be scheduled");
+            prefs(context).edit().clear().putString(K_STATE, TimerState.IDLE.name()).commit();
+            throw new IllegalStateException("Exact alarm scheduling failed");
+        }
     }
 
     public static synchronized long remainingMs(Context context) {
@@ -108,11 +132,12 @@ public final class TimerStore {
         int storedBoot = p.getInt(K_BOOT_COUNT, Integer.MIN_VALUE);
         int currentBoot = bootCount(context);
 
-        // Normal Activity/process recreation in the same boot must stay monotonic.
         if (!forcePostBootRecovery
                 && storedBoot != Integer.MIN_VALUE
                 && storedBoot == currentBoot) {
-            schedule(context);
+            if (!schedule(context)) {
+                log(context, "EXACT_ALARM_PERMISSION_MISSING", "Active timer could not be rescheduled after process recreation");
+            }
             return;
         }
 
@@ -129,9 +154,11 @@ public final class TimerStore {
             return;
         }
         if (nowWall >= expiryWall) {
+            log(context, "EXPIRY_CONFIRMED", "Expiry passed while device was unavailable");
             markExpired(context, "Expired while device was unavailable");
             return;
         }
+
         long remaining = expiryWall - nowWall;
         long nowElapsed = SystemClock.elapsedRealtime();
         p.edit()
@@ -144,7 +171,9 @@ public final class TimerStore {
                 .putBoolean(K_CLOCK_ANOMALY, false)
                 .commit();
         log(context, "TIMER_RECOVERED", "Remaining=" + remaining + "ms");
-        schedule(context);
+        if (!schedule(context)) {
+            log(context, "EXACT_ALARM_PERMISSION_MISSING", "Recovered timer could not be scheduled exactly");
+        }
     }
 
     public static synchronized void markExpired(Context context, String reason) {
@@ -172,36 +201,84 @@ public final class TimerStore {
         return prefs(context).getLong(K_EXPIRY_WALL, 0L);
     }
 
-    public static synchronized void schedule(Context context) {
-        if (state(context) != TimerState.ACTIVE) return;
+    public static synchronized String sessionId(Context context) {
+        return prefs(context).getString(K_ID, "-");
+    }
+
+    public static synchronized long lastAlarmScheduledWall(Context context) {
+        return prefs(context).getLong(K_LAST_ALARM_SCHEDULED_WALL, 0L);
+    }
+
+    public static synchronized long lastAlarmReceivedWall(Context context) {
+        return prefs(context).getLong(K_LAST_ALARM_RECEIVED_WALL, 0L);
+    }
+
+    public static synchronized long lastLockRequestWall(Context context) {
+        return prefs(context).getLong(K_LAST_LOCK_REQUEST_WALL, 0L);
+    }
+
+    public static synchronized String lastLockResult(Context context) {
+        return prefs(context).getString(K_LAST_LOCK_RESULT, "-");
+    }
+
+    public static synchronized void recordAlarmReceived(Context context, String detail) {
+        prefs(context).edit().putLong(K_LAST_ALARM_RECEIVED_WALL, System.currentTimeMillis()).apply();
+        log(context, "ALARM_RECEIVED", detail == null ? "" : detail);
+    }
+
+    public static synchronized void recordLockRequest(Context context) {
+        prefs(context).edit().putLong(K_LAST_LOCK_REQUEST_WALL, System.currentTimeMillis()).apply();
+    }
+
+    public static synchronized void recordLockResult(Context context, String result) {
+        prefs(context).edit().putString(K_LAST_LOCK_RESULT, result == null ? "-" : result).apply();
+    }
+
+    public static synchronized boolean schedule(Context context) {
+        if (state(context) != TimerState.ACTIVE) return false;
         long remaining = remainingMs(context);
         if (remaining == Long.MIN_VALUE) {
             setRecoveryRequired(context, "CLOCK_MOVED_BACKWARD");
-            return;
+            return false;
         }
         if (remaining <= 0) {
+            log(context, "EXPIRY_CONFIRMED", "Expiry detected while scheduling");
             markExpired(context, "Expiry detected while scheduling");
-            return;
+            return false;
         }
+        if (!hasExactAlarmAccess(context)) {
+            log(context, "EXACT_ALARM_PERMISSION_MISSING", "No inexact fallback allowed for protected expiry");
+            return false;
+        }
+
         AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        if (am == null) {
+            log(context, "EXACT_ALARM_SCHEDULE_FAILED", "AlarmManager unavailable");
+            return false;
+        }
+
         PendingIntent pi = alarmIntent(context);
-        long triggerElapsed = SystemClock.elapsedRealtime() + remaining;
+        long triggerElapsed = safeAdd(SystemClock.elapsedRealtime(), remaining);
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !am.canScheduleExactAlarms()) {
-                am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerElapsed, pi);
-                log(context, "ALARM_FALLBACK", "Exact alarm access unavailable");
-            } else {
-                am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerElapsed, pi);
-            }
+            am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerElapsed, pi);
+            prefs(context).edit().putLong(K_LAST_ALARM_SCHEDULED_WALL, System.currentTimeMillis()).apply();
+            log(context, "EXACT_ALARM_SCHEDULED",
+                    "remaining=" + remaining + "ms; triggerElapsed=" + triggerElapsed + "; expiryWall=" + targetWallClock(context));
+            return true;
         } catch (SecurityException ex) {
-            am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerElapsed, pi);
-            log(context, "ALARM_FALLBACK", "SecurityException: " + ex.getClass().getSimpleName());
+            log(context, "EXACT_ALARM_PERMISSION_MISSING", "SecurityException while scheduling exact alarm");
+            return false;
+        } catch (Exception ex) {
+            log(context, "EXACT_ALARM_SCHEDULE_FAILED", ex.getClass().getSimpleName());
+            return false;
         }
     }
 
     public static synchronized void cancelAlarm(Context context) {
-        AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-        am.cancel(alarmIntent(context));
+        try {
+            AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+            if (am != null) am.cancel(alarmIntent(context));
+        } catch (Exception ignored) {}
     }
 
     private static PendingIntent alarmIntent(Context context) {
@@ -214,8 +291,18 @@ public final class TimerStore {
         SharedPreferences lp = dp(context).getSharedPreferences(LOG_PREF, Context.MODE_PRIVATE);
         int count = lp.getInt("count", 0);
         int next = count % LOG_LIMIT;
-        String stamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date());
-        lp.edit().putString("e_" + next, stamp + " | " + type + " | " + detail)
+        String stamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(new Date());
+        String version = "?";
+        try {
+            version = context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName;
+        } catch (Exception ignored) {}
+        String metadata = "session=" + prefs(context).getString(K_ID, "-")
+                + "; state=" + state(context)
+                + "; device=" + Build.MANUFACTURER + "/" + Build.MODEL
+                + "; sdk=" + Build.VERSION.SDK_INT
+                + "; app=" + version;
+        lp.edit().putString("e_" + next,
+                        stamp + " | " + type + " | " + metadata + " | " + (detail == null ? "" : detail))
                 .putInt("count", count + 1).apply();
     }
 
