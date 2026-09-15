@@ -6,6 +6,8 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.os.Build;
 
+import java.util.Locale;
+
 public final class DeviceLockHelper {
     private DeviceLockHelper() {}
 
@@ -30,35 +32,67 @@ public final class DeviceLockHelper {
         }
     }
 
+    public static boolean requiresAccessibilityFallback() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return false;
+        String manufacturer = Build.MANUFACTURER == null ? "" : Build.MANUFACTURER.toLowerCase(Locale.US);
+        String brand = Build.BRAND == null ? "" : Build.BRAND.toLowerCase(Locale.US);
+        return manufacturer.contains("xiaomi")
+                || brand.contains("xiaomi")
+                || brand.contains("redmi")
+                || brand.contains("poco");
+    }
+
+    /**
+     * Requests the lock through two independent Android mechanisms where available.
+     * Device Admin remains the standard path. Accessibility GLOBAL_ACTION_LOCK_SCREEN
+     * is also fired when enabled so OEM firmware cannot silently accept lockNow()
+     * without actually presenting the lock screen.
+     */
     public static boolean lockScreen(Context context) {
         TimerStore.recordLockRequest(context);
+
+        boolean dpmAccepted = false;
+        boolean accessibilityAccepted = false;
+        String dpmResult = "not attempted";
+
         try {
             DevicePolicyManager dpm = (DevicePolicyManager) context.getSystemService(Context.DEVICE_POLICY_SERVICE);
             ComponentName admin = new ComponentName(context, AdminReceiver.class);
             if (dpm == null || !dpm.isAdminActive(admin)) {
-                TimerStore.recordLockResult(context, "FAILED: Device Admin inactive");
-                TimerStore.log(context, "LOCK_FAILED", "Device Admin is not active");
-                return false;
+                dpmResult = "Device Admin inactive";
+                TimerStore.log(context, "LOCK_DPM_FAILED", dpmResult);
+            } else if (!isDeviceSecure(context)) {
+                dpmResult = "secure Android lock missing";
+                TimerStore.log(context, "LOCK_DPM_FAILED", dpmResult);
+            } else {
+                TimerStore.log(context, "LOCK_DPM_REQUESTED", "Calling DevicePolicyManager.lockNow()");
+                dpm.lockNow();
+                dpmAccepted = true;
+                dpmResult = "lockNow returned without exception";
+                TimerStore.log(context, "LOCK_DPM_ACCEPTED", dpmResult);
             }
-            if (!isDeviceSecure(context)) {
-                TimerStore.recordLockResult(context, "FAILED: secure Android lock missing");
-                TimerStore.log(context, "LOCK_FAILED", "Android secure lock is not configured");
-                return false;
-            }
-
-            TimerStore.log(context, "LOCK_REQUESTED", "Calling DevicePolicyManager.lockNow()");
-            dpm.lockNow();
-            TimerStore.recordLockResult(context, "SUCCESS: lockNow returned without exception");
-            TimerStore.log(context, "LOCK_SUCCESS", "DevicePolicyManager.lockNow() returned without exception");
-            return true;
         } catch (SecurityException ex) {
-            TimerStore.recordLockResult(context, "FAILED: SecurityException");
-            TimerStore.log(context, "LOCK_FAILED", "SecurityException");
-            return false;
+            dpmResult = "SecurityException";
+            TimerStore.log(context, "LOCK_DPM_FAILED", dpmResult);
         } catch (Exception ex) {
-            TimerStore.recordLockResult(context, "FAILED: " + ex.getClass().getSimpleName());
-            TimerStore.log(context, "LOCK_FAILED", ex.getClass().getSimpleName());
-            return false;
+            dpmResult = ex.getClass().getSimpleName();
+            TimerStore.log(context, "LOCK_DPM_FAILED", dpmResult);
         }
+
+        // Fire an independent global system lock when the user enabled the service.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+                && TimerAccessibilityService.isEnabled(context)) {
+            accessibilityAccepted = TimerAccessibilityService.requestScreenLock(context);
+        } else if (requiresAccessibilityFallback()) {
+            TimerStore.log(context, "ACCESSIBILITY_LOCK_UNAVAILABLE",
+                    "OEM fallback required but accessibility service is not enabled");
+        }
+
+        boolean accepted = dpmAccepted || accessibilityAccepted;
+        String result = "DPM=" + dpmAccepted + " (" + dpmResult + ")"
+                + "; Accessibility=" + accessibilityAccepted;
+        TimerStore.recordLockResult(context, (accepted ? "SUCCESS: " : "FAILED: ") + result);
+        TimerStore.log(context, accepted ? "LOCK_ACCEPTED" : "LOCK_FAILED", result);
+        return accepted;
     }
 }
