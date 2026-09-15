@@ -41,6 +41,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           script: |
+            set -euo pipefail
             echo 'android.useAndroidX=true' >> gradle.properties
             gradle --no-daemon clean assembleDebug assembleDebugAndroidTest --stacktrace
             adb install -r app/build/outputs/apk/debug/app-debug.apk
@@ -48,4 +49,9 @@ jobs:
             adb shell locksettings set-pin 1234
             adb shell dpm set-active-admin --user 0 com.timerlock.secure/.AdminReceiver
             adb shell appops set com.timerlock.secure SCHEDULE_EXACT_ALARM allow || true
-            adb shell am instrument -w com.timerlock.secure.test/androidx.test.runner.AndroidJUnitRunner
+            adb shell am instrument -w com.timerlock.secure.test/androidx.test.runner.AndroidJUnitRunner | tee /tmp/timerlock-instrumentation.txt
+            grep -q 'OK (1 test)' /tmp/timerlock-instrumentation.txt
+            if grep -q 'FAILURES!!!' /tmp/timerlock-instrumentation.txt; then
+              echo 'Instrumentation reported test failures.' >&2
+              exit 1
+            fi
