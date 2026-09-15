@@ -54,15 +54,15 @@ public class SetupGateActivity extends Activity {
         dialogVisible = true;
         new AlertDialog.Builder(this)
                 .setTitle("Precise Timer Access Required")
-                .setMessage("TimerLock must be allowed to schedule exact alarms so the protected expiry can fire while another app is open or the phone is idle.\n\nTap Continue, then enable Alarms & reminders for TimerLock.")
+                .setMessage("TimerLock is a timer app and requests Android exact-alarm capability for protected expiry. This device is not currently exposing that capability.\n\nOpen TimerLock app info and confirm the system has not restricted alarms or background operation.")
                 .setCancelable(false)
                 .setNegativeButton("Exit", (d, w) -> {
                     dialogVisible = false;
                     finish();
                 })
-                .setPositiveButton("Continue", (d, w) -> {
+                .setPositiveButton("Open App Info", (d, w) -> {
                     dialogVisible = false;
-                    requestExactAlarmAccess();
+                    requestAppInfo();
                 })
                 .setOnDismissListener(d -> dialogVisible = false)
                 .show();
@@ -73,13 +73,17 @@ public class SetupGateActivity extends Activity {
         dialogVisible = true;
         new AlertDialog.Builder(this)
                 .setTitle("Xiaomi Lock Fallback Required")
-                .setMessage("This Xiaomi / Redmi / POCO device needs TimerLock's second lock path for reliable background expiry.\n\nIn Accessibility settings, enable ‘TimerLock Screen Lock’. TimerLock uses this service only for Android's global Lock Screen action. It does not read or control content in other apps.")
+                .setMessage("For Xiaomi / Redmi / POCO, TimerLock uses a second Android lock path so expiry can still lock the phone while another app is open.\n\n1. Enable ‘TimerLock Screen Lock’ in Accessibility.\n\n2. If Android says ‘Restricted setting’ or the switch is greyed out: open App info → tap the three-dot menu → Allow restricted settings, authenticate, then return to Accessibility.\n\nTimerLock does not read, inspect, click, type, or collect content from other apps.")
                 .setCancelable(false)
                 .setNegativeButton("Exit", (d, w) -> {
                     dialogVisible = false;
                     finish();
                 })
-                .setPositiveButton("Open Accessibility", (d, w) -> {
+                .setNeutralButton("App Info", (d, w) -> {
+                    dialogVisible = false;
+                    requestAppInfo();
+                })
+                .setPositiveButton("Accessibility", (d, w) -> {
                     dialogVisible = false;
                     requestAccessibilityAccess();
                 })
@@ -93,29 +97,18 @@ public class SetupGateActivity extends Activity {
         return am != null && am.canScheduleExactAlarms();
     }
 
-    private void requestExactAlarmAccess() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            checkAccessAndContinue();
-            return;
-        }
-        try {
-            Intent intent = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
-                    Uri.parse("package:" + getPackageName()));
-            startActivity(intent);
-        } catch (Exception e) {
-            Intent fallback = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.parse("package:" + getPackageName()));
-            startActivity(fallback);
-        }
-    }
-
     private void requestAccessibilityAccess() {
         try {
             startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
         } catch (Exception e) {
-            Intent fallback = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.parse("package:" + getPackageName()));
-            startActivity(fallback);
+            requestAppInfo();
         }
+    }
+
+    private void requestAppInfo() {
+        try {
+            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + getPackageName())));
+        } catch (Exception ignored) {}
     }
 }
