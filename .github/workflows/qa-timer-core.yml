@@ -2,7 +2,7 @@ name: QA Timer Core
 
 on:
   push:
-    branches: [ fix-exact-alarm-gate-20260915 ]
+    branches: [ fix-xiaomi-dual-lock-v420 ]
     paths:
       - 'app/**'
       - '.github/workflows/qa-timer-core.yml'
