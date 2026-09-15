@@ -2,7 +2,7 @@ name: QA Timer Core
 
 on:
   push:
-    branches: [ fix-lock-at-expiry-only-20260914 ]
+    branches: [ fix-exact-alarm-gate-20260915 ]
     paths:
       - 'app/**'
       - '.github/workflows/qa-timer-core.yml'
@@ -47,4 +47,5 @@ jobs:
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             adb shell locksettings set-pin 1234
             adb shell dpm set-active-admin --user 0 com.timerlock.secure/.AdminReceiver
+            adb shell appops set com.timerlock.secure SCHEDULE_EXACT_ALARM allow || true
             adb shell am instrument -w com.timerlock.secure.test/androidx.test.runner.AndroidJUnitRunner
