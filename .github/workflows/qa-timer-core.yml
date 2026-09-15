@@ -2,7 +2,7 @@ name: QA Timer Core
 
 on:
   push:
-    branches: [ fix-exact-alarm-gate-20260915 ]
+    branches: [ fix-hyperos-v420 ]
     paths:
       - 'app/**'
       - '.github/workflows/qa-timer-core.yml'
@@ -33,7 +33,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Build and run Android 15 behavior test
+      - name: Build and run Android 15 AlarmClock behavior test
         uses: ReactiveCircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -47,5 +47,4 @@ jobs:
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             adb shell locksettings set-pin 1234
             adb shell dpm set-active-admin --user 0 com.timerlock.secure/.AdminReceiver
-            adb shell appops set com.timerlock.secure SCHEDULE_EXACT_ALARM allow || true
             adb shell am instrument -w com.timerlock.secure.test/androidx.test.runner.AndroidJUnitRunner
