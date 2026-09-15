@@ -53,19 +53,21 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v4.0.0-preview
-          name: TimerLock v4.0.1 Preview
+          name: TimerLock v4.1.0 Preview
           prerelease: true
           generate_release_notes: false
           body: |
-            TimerLock v4.0.1 preview build for public testing.
+            TimerLock v4.1.0 preview reliability build for public testing.
 
-            - Free Android app
-            - No ads
-            - No account required
+            - Exact AlarmManager is the primary protected expiry trigger
+            - Inexact alarm fallback removed
+            - AlarmReceiver locks directly without requiring TimerLock UI to reopen
+            - Foreground TimerService remains a secondary watchdog
+            - Diagnostic chain records alarm delivery and lockNow result
             - Users may use other apps while the timer runs
             - Device locks only when the countdown reaches 00:00
-            - Android 12+ requires Alarms & reminders access for precise expiry
-            - Device Admin is used to request the Android screen lock at expiry
+            - Android 12+ requires Alarms & reminders access
+            - Xiaomi / HyperOS real-device verification remains required
           files: |
             TimerLock-v4-preview.apk
             TimerLock-v4-preview.sha256.txt
