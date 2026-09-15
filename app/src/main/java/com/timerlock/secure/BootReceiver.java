@@ -12,13 +12,17 @@ public class BootReceiver extends BroadcastReceiver {
 
         if (Intent.ACTION_TIME_CHANGED.equals(action) || Intent.ACTION_TIMEZONE_CHANGED.equals(action)) {
             TimerStore.heartbeat(context);
-            if (TimerStore.state(context) == TimerState.ACTIVE) TimerStore.schedule(context);
+            if (TimerStore.state(context) == TimerState.ACTIVE) {
+                TimerStore.schedule(context);
+                CriticalAlarmScheduler.schedule(context);
+            }
             return;
         }
 
         if (Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) {
             TimerStore.log(context, "PROCESS_RECREATED", "Package replaced; restoring active expiry alarm if needed");
             TimerStore.recoverAfterBoot(context, false);
+            if (TimerStore.state(context) == TimerState.ACTIVE) CriticalAlarmScheduler.schedule(context);
             return;
         }
 
@@ -27,6 +31,9 @@ public class BootReceiver extends BroadcastReceiver {
                 || Intent.ACTION_USER_UNLOCKED.equals(action)) {
             TimerStore.log(context, "BOOT_RECOVERY", "action=" + action);
             TimerStore.recoverAfterBoot(context, true);
+            if (TimerStore.state(context) == TimerState.ACTIVE) {
+                CriticalAlarmScheduler.schedule(context);
+            }
             if (TimerStore.state(context) == TimerState.EXPIRED) {
                 TimerStore.log(context, "EXPIRY_CONFIRMED", "Expired state restored during boot recovery");
                 DeviceLockHelper.lockScreen(context);
