@@ -48,7 +48,6 @@ jobs:
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             adb shell locksettings set-pin 1234
             adb shell dpm set-active-admin --user 0 com.timerlock.secure/.AdminReceiver
-            adb shell appops set com.timerlock.secure SCHEDULE_EXACT_ALARM allow || true
             adb shell am instrument -w com.timerlock.secure.test/androidx.test.runner.AndroidJUnitRunner | tee /tmp/timerlock-instrumentation.txt
             grep -q 'OK (1 test)' /tmp/timerlock-instrumentation.txt
             if grep -q 'FAILURES!!!' /tmp/timerlock-instrumentation.txt; then
