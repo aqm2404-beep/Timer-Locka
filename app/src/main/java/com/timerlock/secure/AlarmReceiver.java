@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.media.AudioAttributes;
 import android.media.RingtoneManager;
 import android.os.Build;
+import android.os.PowerManager;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 
@@ -17,41 +18,56 @@ public class AlarmReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        String action = intent == null ? "" : String.valueOf(intent.getAction());
-        TimerStore.recordAlarmReceived(context, "action=" + action);
-
-        if (TimerStore.state(context) != TimerState.ACTIVE) {
-            TimerStore.log(context, "ALARM_IGNORED", "Timer state is not ACTIVE");
-            return;
-        }
-
-        long remaining = TimerStore.remainingMs(context);
-        if (remaining == Long.MIN_VALUE) {
-            TimerStore.setRecoveryRequired(context, "Clock integrity failure at alarm");
-            return;
-        }
-
-        if (remaining > 1000L) {
-            TimerStore.log(context, "ALARM_EARLY", "remaining=" + remaining + "ms; rescheduling exact alarm");
-            if (!TimerStore.schedule(context)) {
-                TimerStore.log(context, "EXACT_ALARM_SCHEDULE_FAILED", "Unable to reschedule early alarm");
-            }
-            return;
-        }
-
-        TimerStore.log(context, "EXPIRY_CONFIRMED", "Scheduled exact alarm reached protected expiry");
-        TimerStore.markExpired(context, "Scheduled exact expiry reached");
-
-        // Lock is the primary action. Non-essential notification work must never block it.
-        boolean locked = DeviceLockHelper.lockScreen(context);
-        if (!locked) {
-            TimerStore.log(context, "LOCK_FAILED", "AlarmReceiver lock request was not accepted");
-        }
-
+        PowerManager.WakeLock wakeLock = null;
         try {
-            notifyExpired(context);
-        } catch (Exception ex) {
-            TimerStore.log(context, "EXPIRY_NOTIFICATION_FAILED", ex.getClass().getSimpleName());
+            PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+            if (pm != null) {
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TimerLock:ExpiryReceiver");
+                wakeLock.acquire(10_000L);
+                TimerStore.log(context, "EXPIRY_WAKELOCK_ACQUIRED", "10s receiver wake window");
+            }
+
+            String action = intent == null ? "" : String.valueOf(intent.getAction());
+            TimerStore.recordAlarmReceived(context, "action=" + action);
+
+            if (TimerStore.state(context) != TimerState.ACTIVE) {
+                TimerStore.log(context, "ALARM_IGNORED", "Timer state is not ACTIVE");
+                return;
+            }
+
+            long remaining = TimerStore.remainingMs(context);
+            if (remaining == Long.MIN_VALUE) {
+                TimerStore.setRecoveryRequired(context, "Clock integrity failure at alarm");
+                return;
+            }
+
+            if (remaining > 1000L) {
+                TimerStore.log(context, "ALARM_EARLY", "remaining=" + remaining + "ms; rescheduling critical alarm");
+                if (!TimerStore.schedule(context)) {
+                    TimerStore.log(context, "EXACT_ALARM_SCHEDULE_FAILED", "Unable to reschedule early alarm");
+                }
+                CriticalAlarmScheduler.schedule(context);
+                return;
+            }
+
+            TimerStore.log(context, "EXPIRY_CONFIRMED", "Critical alarm reached protected expiry");
+            TimerStore.markExpired(context, "Critical scheduled expiry reached");
+
+            // Lock first. Notifications/vibration are non-essential and must never block lockNow().
+            boolean locked = DeviceLockHelper.lockScreen(context);
+            if (!locked) {
+                TimerStore.log(context, "LOCK_FAILED", "AlarmReceiver lock request was not accepted");
+            }
+
+            try {
+                notifyExpired(context);
+            } catch (Exception ex) {
+                TimerStore.log(context, "EXPIRY_NOTIFICATION_FAILED", ex.getClass().getSimpleName());
+            }
+        } finally {
+            if (wakeLock != null && wakeLock.isHeld()) {
+                try { wakeLock.release(); } catch (Exception ignored) {}
+            }
         }
     }
 
