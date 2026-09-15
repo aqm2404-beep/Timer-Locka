@@ -67,6 +67,11 @@ public final class TimerStore {
             log(context, "EXACT_ALARM_PERMISSION_MISSING", "Protected timer start blocked");
             throw new IllegalStateException("Exact alarm access unavailable");
         }
+        if (DeviceLockHelper.requiresAccessibilityFallback()
+                && !TimerAccessibilityService.isEnabled(context)) {
+            log(context, "ACCESSIBILITY_REQUIRED", "OEM lock fallback missing; protected timer start blocked");
+            throw new IllegalStateException("Accessibility lock fallback unavailable");
+        }
 
         long wall = System.currentTimeMillis();
         long elapsed = SystemClock.elapsedRealtime();
@@ -87,9 +92,9 @@ public final class TimerStore {
         log(context, "TIMER_STARTED", "Duration=" + durationMs + "ms; expiryWall=" + expiryWall);
 
         if (!schedule(context)) {
-            log(context, "START_ABORTED", "Exact alarm could not be scheduled");
+            log(context, "START_ABORTED", "No protected alarm path could be scheduled");
             prefs(context).edit().clear().putString(K_STATE, TimerState.IDLE.name()).commit();
-            throw new IllegalStateException("Exact alarm scheduling failed");
+            throw new IllegalStateException("Protected alarm scheduling failed");
         }
     }
 
@@ -136,7 +141,7 @@ public final class TimerStore {
                 && storedBoot != Integer.MIN_VALUE
                 && storedBoot == currentBoot) {
             if (!schedule(context)) {
-                log(context, "EXACT_ALARM_PERMISSION_MISSING", "Active timer could not be rescheduled after process recreation");
+                log(context, "PROTECTED_ALARM_RESCHEDULE_FAILED", "Active timer could not be rescheduled after process recreation");
             }
             return;
         }
@@ -156,6 +161,7 @@ public final class TimerStore {
         if (nowWall >= expiryWall) {
             log(context, "EXPIRY_CONFIRMED", "Expiry passed while device was unavailable");
             markExpired(context, "Expired while device was unavailable");
+            DeviceLockHelper.lockScreen(context);
             return;
         }
 
@@ -172,7 +178,7 @@ public final class TimerStore {
                 .commit();
         log(context, "TIMER_RECOVERED", "Remaining=" + remaining + "ms");
         if (!schedule(context)) {
-            log(context, "EXACT_ALARM_PERMISSION_MISSING", "Recovered timer could not be scheduled exactly");
+            log(context, "PROTECTED_ALARM_RESCHEDULE_FAILED", "Recovered timer could not be scheduled");
         }
     }
 
@@ -234,6 +240,15 @@ public final class TimerStore {
         prefs(context).edit().putString(K_LAST_LOCK_RESULT, result == null ? "-" : result).apply();
     }
 
+    /**
+     * Schedules two independent expiry alarms:
+     * 1) setAlarmClock() using wall-clock time. Android documents this as its most
+     *    critical exact-alarm API and exits low-power modes to deliver it.
+     * 2) setExactAndAllowWhileIdle() using monotonic elapsed time as a backup.
+     *
+     * They use different PendingIntent identities, so one does not replace the other.
+     * Whichever fires first expires the timer; the second is cancelled by markExpired().
+     */
     public static synchronized boolean schedule(Context context) {
         if (state(context) != TimerState.ACTIVE) return false;
         long remaining = remainingMs(context);
@@ -244,46 +259,88 @@ public final class TimerStore {
         if (remaining <= 0) {
             log(context, "EXPIRY_CONFIRMED", "Expiry detected while scheduling");
             markExpired(context, "Expiry detected while scheduling");
+            DeviceLockHelper.lockScreen(context);
             return false;
         }
         if (!hasExactAlarmAccess(context)) {
-            log(context, "EXACT_ALARM_PERMISSION_MISSING", "No inexact fallback allowed for protected expiry");
+            log(context, "EXACT_ALARM_PERMISSION_MISSING", "Protected alarm scheduling blocked");
             return false;
         }
 
         AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
         if (am == null) {
-            log(context, "EXACT_ALARM_SCHEDULE_FAILED", "AlarmManager unavailable");
+            log(context, "PROTECTED_ALARM_SCHEDULE_FAILED", "AlarmManager unavailable");
             return false;
         }
 
-        PendingIntent pi = alarmIntent(context);
+        boolean alarmClockScheduled = false;
+        boolean elapsedBackupScheduled = false;
+        long expiryWall = targetWallClock(context);
         long triggerElapsed = safeAdd(SystemClock.elapsedRealtime(), remaining);
+
         try {
-            am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerElapsed, pi);
-            prefs(context).edit().putLong(K_LAST_ALARM_SCHEDULED_WALL, System.currentTimeMillis()).apply();
-            log(context, "EXACT_ALARM_SCHEDULED",
-                    "remaining=" + remaining + "ms; triggerElapsed=" + triggerElapsed + "; expiryWall=" + targetWallClock(context));
-            return true;
+            AlarmManager.AlarmClockInfo info = new AlarmManager.AlarmClockInfo(expiryWall, alarmShowIntent(context));
+            am.setAlarmClock(info, alarmClockIntent(context));
+            alarmClockScheduled = true;
+            log(context, "ALARM_CLOCK_SCHEDULED",
+                    "expiryWall=" + expiryWall + "; remaining=" + remaining + "ms");
         } catch (SecurityException ex) {
-            log(context, "EXACT_ALARM_PERMISSION_MISSING", "SecurityException while scheduling exact alarm");
-            return false;
+            log(context, "ALARM_CLOCK_PERMISSION_FAILED", "SecurityException");
         } catch (Exception ex) {
-            log(context, "EXACT_ALARM_SCHEDULE_FAILED", ex.getClass().getSimpleName());
-            return false;
+            log(context, "ALARM_CLOCK_SCHEDULE_FAILED", ex.getClass().getSimpleName());
         }
+
+        try {
+            am.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    triggerElapsed, elapsedBackupIntent(context));
+            elapsedBackupScheduled = true;
+            log(context, "ELAPSED_BACKUP_SCHEDULED",
+                    "triggerElapsed=" + triggerElapsed + "; remaining=" + remaining + "ms");
+        } catch (SecurityException ex) {
+            log(context, "ELAPSED_BACKUP_PERMISSION_FAILED", "SecurityException");
+        } catch (Exception ex) {
+            log(context, "ELAPSED_BACKUP_SCHEDULE_FAILED", ex.getClass().getSimpleName());
+        }
+
+        boolean scheduled = alarmClockScheduled || elapsedBackupScheduled;
+        if (scheduled) {
+            prefs(context).edit().putLong(K_LAST_ALARM_SCHEDULED_WALL, System.currentTimeMillis()).apply();
+            log(context, "PROTECTED_ALARM_SCHEDULED",
+                    "alarmClock=" + alarmClockScheduled + "; elapsedBackup=" + elapsedBackupScheduled);
+        } else {
+            log(context, "PROTECTED_ALARM_SCHEDULE_FAILED", "Both alarm paths failed");
+        }
+        return scheduled;
     }
 
     public static synchronized void cancelAlarm(Context context) {
         try {
             AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-            if (am != null) am.cancel(alarmIntent(context));
+            if (am != null) {
+                am.cancel(alarmClockIntent(context));
+                am.cancel(elapsedBackupIntent(context));
+            }
         } catch (Exception ignored) {}
     }
 
-    private static PendingIntent alarmIntent(Context context) {
-        Intent i = new Intent(context, AlarmReceiver.class).setAction("com.timerlock.secure.EXPIRE");
+    private static PendingIntent alarmClockIntent(Context context) {
+        Intent i = new Intent(context, AlarmReceiver.class)
+                .setAction("com.timerlock.secure.EXPIRE_ALARM_CLOCK");
         return PendingIntent.getBroadcast(context, 6011, i,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    private static PendingIntent elapsedBackupIntent(Context context) {
+        Intent i = new Intent(context, AlarmReceiver.class)
+                .setAction("com.timerlock.secure.EXPIRE_ELAPSED_BACKUP");
+        return PendingIntent.getBroadcast(context, 6012, i,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    private static PendingIntent alarmShowIntent(Context context) {
+        Intent i = new Intent(context, MainActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        return PendingIntent.getActivity(context, 6013, i,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
