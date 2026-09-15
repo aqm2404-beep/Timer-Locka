@@ -17,23 +17,47 @@ public class AlarmReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        if (TimerStore.state(context) != TimerState.ACTIVE) return;
+        String action = intent == null ? "" : String.valueOf(intent.getAction());
+        TimerStore.recordAlarmReceived(context, "action=" + action);
+
+        if (TimerStore.state(context) != TimerState.ACTIVE) {
+            TimerStore.log(context, "ALARM_IGNORED", "Timer state is not ACTIVE");
+            return;
+        }
+
         long remaining = TimerStore.remainingMs(context);
         if (remaining == Long.MIN_VALUE) {
             TimerStore.setRecoveryRequired(context, "Clock integrity failure at alarm");
             return;
         }
+
         if (remaining > 1000L) {
-            TimerStore.schedule(context);
+            TimerStore.log(context, "ALARM_EARLY", "remaining=" + remaining + "ms; rescheduling exact alarm");
+            if (!TimerStore.schedule(context)) {
+                TimerStore.log(context, "EXACT_ALARM_SCHEDULE_FAILED", "Unable to reschedule early alarm");
+            }
             return;
         }
-        TimerStore.markExpired(context, "Scheduled expiry reached");
-        notifyExpired(context);
-        DeviceLockHelper.lockScreen(context);
+
+        TimerStore.log(context, "EXPIRY_CONFIRMED", "Scheduled exact alarm reached protected expiry");
+        TimerStore.markExpired(context, "Scheduled exact expiry reached");
+
+        // Lock is the primary action. Non-essential notification work must never block it.
+        boolean locked = DeviceLockHelper.lockScreen(context);
+        if (!locked) {
+            TimerStore.log(context, "LOCK_FAILED", "AlarmReceiver lock request was not accepted");
+        }
+
+        try {
+            notifyExpired(context);
+        } catch (Exception ex) {
+            TimerStore.log(context, "EXPIRY_NOTIFICATION_FAILED", ex.getClass().getSimpleName());
+        }
     }
 
     public static void notifyExpired(Context context) {
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm == null) return;
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel c = new NotificationChannel(CHANNEL_EXPIRED, "Timer expired",
                     NotificationManager.IMPORTANCE_HIGH);
