@@ -1,4 +1,4 @@
-name: Publish TimerLock Preview APK
+name: Publish TimerLock APK
 
 on:
   workflow_dispatch:
@@ -46,28 +46,33 @@ jobs:
 
       - name: Prepare APK
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk TimerLock-v4-preview.apk
-          sha256sum TimerLock-v4-preview.apk > TimerLock-v4-preview.sha256.txt
+          cp app/build/outputs/apk/debug/app-debug.apk TimerLock-v4.3.0.apk
+          sha256sum TimerLock-v4.3.0.apk > TimerLock-v4.3.0.sha256.txt
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v4.0.0-preview
-          name: TimerLock v4.2.0 Preview
+          tag_name: v4.3.0
+          name: TimerLock v4.3.0
           prerelease: true
           generate_release_notes: false
           body: |
-            TimerLock v4.2.0 HyperOS reliability build for public testing.
+            TimerLock v4.3.0 overlay and floating-timer repair build.
 
-            - AlarmManager.setAlarmClock() is the preferred protected expiry trigger
-            - USE_EXACT_ALARM is used on Android 13+; SCHEDULE_EXACT_ALARM remains for Android 12/12L
-            - Existing exact alarm remains as fallback if AlarmClock scheduling is rejected
-            - Foreground TimerService remains an independent watchdog
-            - AlarmReceiver acquires a short CPU wake window before calling lockNow()
-            - AlarmClock path is restored after boot, package replacement, time or timezone changes
-            - Users may use other apps while the timer runs
-            - Device locks only when the countdown reaches 00:00
-            - Xiaomi / HyperOS real-device verification remains required
+            - One overlay permission for TimerLock only; no per-app overlay setup
+            - Draggable floating countdown bubble with edge snapping
+            - Bubble hides while TimerLock is foreground and returns in background
+            - Active timer continues if overlay permission is later revoked
+            - Exact-alarm receiver and foreground watchdog retained
+            - Device Admin screen-lock request at 00:00 retained
+            - Reboot/time-change recovery retained
+            - Android 8.0+ / target SDK 35
+
+            Installation notes:
+            1. Download TimerLock-v4.3.0.apk.
+            2. Allow installation from the browser/file manager if Android requests it.
+            3. Open TimerLock and complete exact alarm, notification, overlay and Device Admin setup.
+            4. Overlay permission is granted to TimerLock once only; do not enable anything for WhatsApp, Chrome, YouTube or other apps.
           files: |
-            TimerLock-v4-preview.apk
-            TimerLock-v4-preview.sha256.txt
+            TimerLock-v4.3.0.apk
+            TimerLock-v4.3.0.sha256.txt
