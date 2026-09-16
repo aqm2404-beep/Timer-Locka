@@ -19,28 +19,37 @@ public class TimerService extends Service {
     private static final int NOTIFICATION_ID = 6001;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private long lastNotificationSecond = Long.MIN_VALUE;
+    private FloatingBubbleController bubble;
 
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             if (TimerStore.state(TimerService.this) != TimerState.ACTIVE) {
+                hideBubble();
                 stopSelf();
                 return;
             }
+
             long remaining = TimerStore.remainingMs(TimerService.this);
             if (remaining == Long.MIN_VALUE) {
+                hideBubble();
                 TimerStore.setRecoveryRequired(TimerService.this, "Clock integrity failure in service");
                 stopSelf();
                 return;
             }
             if (remaining <= 0) {
+                if (bubble != null) bubble.update(0L);
                 TimerStore.log(TimerService.this, "EXPIRY_CONFIRMED", "Foreground watchdog reached zero");
                 TimerStore.markExpired(TimerService.this, "Foreground watchdog reached zero");
                 DeviceLockHelper.lockScreen(TimerService.this);
                 try { AlarmReceiver.notifyExpired(TimerService.this); }
                 catch (Exception ex) { TimerStore.log(TimerService.this, "EXPIRY_NOTIFICATION_FAILED", ex.getClass().getSimpleName()); }
+                hideBubble();
                 stopSelf();
                 return;
             }
+
+            syncBubble(remaining);
+
             long sec = remaining / 1000L;
             if (lastNotificationSecond == Long.MIN_VALUE || sec <= 60 || sec / 60 != lastNotificationSecond / 60) {
                 NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
@@ -55,24 +64,25 @@ public class TimerService extends Service {
     @Override public void onCreate() {
         super.onCreate();
         createChannel();
+        bubble = new FloatingBubbleController(this);
         TimerStore.log(this, "FOREGROUND_SERVICE_CREATED", "TimerService process created");
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         TimerStore.log(this, "FOREGROUND_SERVICE_STARTED", "startId=" + startId);
         if (TimerStore.state(this) != TimerState.ACTIVE) {
+            hideBubble();
             stopSelf();
             return START_NOT_STICKY;
         }
 
-        // Upgrade the normal exact alarm to AlarmClock semantics whenever possible.
-        // If this OEM/API refuses it, the exact alarm already scheduled by TimerStore remains.
         if (!CriticalAlarmScheduler.schedule(this)) {
             TimerStore.log(this, "ALARM_CLOCK_FALLBACK", "Keeping normal exact alarm + foreground watchdog");
         }
 
         long remaining = TimerStore.remainingMs(this);
         if (remaining <= 0 || remaining == Long.MIN_VALUE) {
+            hideBubble();
             if (remaining == Long.MIN_VALUE) {
                 TimerStore.setRecoveryRequired(this, "Service start integrity failure");
             } else {
@@ -85,7 +95,9 @@ public class TimerService extends Service {
             stopSelf();
             return START_NOT_STICKY;
         }
+
         startForeground(NOTIFICATION_ID, notification(remaining));
+        syncBubble(remaining);
         handler.removeCallbacks(tick);
         handler.post(tick);
         return START_STICKY;
@@ -93,11 +105,30 @@ public class TimerService extends Service {
 
     @Override public void onDestroy() {
         handler.removeCallbacks(tick);
+        if (bubble != null) bubble.destroy();
         TimerStore.log(this, "FOREGROUND_SERVICE_DESTROYED", "TimerService destroyed");
         super.onDestroy();
     }
 
     @Override public IBinder onBind(Intent intent) { return null; }
+
+    private void syncBubble(long remaining) {
+        if (bubble == null) return;
+        if (TimerLockApp.isUiForeground()) {
+            bubble.hide();
+            return;
+        }
+        if (bubble.hasPermission()) {
+            bubble.show(remaining);
+        } else {
+            bubble.hide();
+            TimerStore.log(this, "OVERLAY_PERMISSION_MISSING", "Timer remains active; only TimerLock overlay permission is required");
+        }
+    }
+
+    private void hideBubble() {
+        if (bubble != null) bubble.hide();
+    }
 
     private void createChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
@@ -110,7 +141,7 @@ public class TimerService extends Service {
     }
 
     private Notification notification(long remaining) {
-        Intent open = new Intent(this, MainActivity.class)
+        Intent open = new Intent(this, SetupGateActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent content = PendingIntent.getActivity(this, 6001, open,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);

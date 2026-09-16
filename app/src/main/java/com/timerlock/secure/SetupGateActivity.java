@@ -11,9 +11,9 @@ import android.os.Bundle;
 import android.provider.Settings;
 
 /**
- * Ensures Android exact-alarm access is available before TimerLock is used.
- * TimerLock's core purpose requires expiry to happen at the user-selected time,
- * including while another app is in the foreground or the device is idle.
+ * One-time capability gate. Overlay permission belongs to TimerLock itself.
+ * TimerLock never requests overlay permission for WhatsApp, Chrome, YouTube,
+ * or any other installed application.
  */
 public class SetupGateActivity extends Activity {
     private boolean dialogVisible;
@@ -31,19 +31,65 @@ public class SetupGateActivity extends Activity {
     }
 
     private void checkAccessAndContinue() {
-        if (hasExactAlarmAccess()) {
-            Intent open = new Intent(this, MainActivity.class);
-            open.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-            startActivity(open);
-            finish();
+        if (!hasOverlayAccess()) {
+            showOverlayAccessDialog();
             return;
         }
+        if (!hasExactAlarmAccess()) {
+            showExactAlarmDialog();
+            return;
+        }
+        openMain();
+    }
 
+    private boolean hasOverlayAccess() {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this);
+    }
+
+    private void showOverlayAccessDialog() {
+        if (dialogVisible) return;
+        dialogVisible = true;
+        new AlertDialog.Builder(this)
+                .setTitle("Floating Timer Permission")
+                .setMessage("TimerLock needs one Android permission to display its countdown bubble above other apps.\n\nOnly TimerLock needs this permission. Do not enable overlay permission for WhatsApp, Chrome, YouTube, or any other app.\n\nTap Continue, enable ‘Allow display over other apps’ for TimerLock, then return.")
+                .setCancelable(false)
+                .setNegativeButton("Exit", (d, w) -> {
+                    dialogVisible = false;
+                    finish();
+                })
+                .setPositiveButton("Continue", (d, w) -> {
+                    dialogVisible = false;
+                    requestOverlayAccess();
+                })
+                .setOnDismissListener(d -> dialogVisible = false)
+                .show();
+    }
+
+    private void requestOverlayAccess() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            checkAccessAndContinue();
+            return;
+        }
+        try {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Exception e) {
+            try {
+                startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION));
+            } catch (Exception ignored) {
+                startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:" + getPackageName())));
+            }
+        }
+    }
+
+    private void showExactAlarmDialog() {
         if (dialogVisible) return;
         dialogVisible = true;
         new AlertDialog.Builder(this)
                 .setTitle("Precise Timer Access Required")
-                .setMessage("TimerLock must be allowed to schedule exact alarms so the phone can lock at exactly 00:00 even when another app is open or the device is idle.\n\nTap Continue, then enable Alarms & reminders for TimerLock.")
+                .setMessage("TimerLock needs Alarms & reminders access so expiry can be checked at the selected time while the phone is idle or another app is open.")
                 .setCancelable(false)
                 .setNegativeButton("Exit", (d, w) -> {
                     dialogVisible = false;
@@ -77,5 +123,12 @@ public class SetupGateActivity extends Activity {
                     Uri.parse("package:" + getPackageName()));
             startActivity(fallback);
         }
+    }
+
+    private void openMain() {
+        Intent open = new Intent(this, MainActivity.class);
+        open.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        startActivity(open);
+        finish();
     }
 }

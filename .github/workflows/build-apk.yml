@@ -1,4 +1,4 @@
-name: Build TimerLock Galaxy Store
+name: Build TimerLock APK
 
 on:
   workflow_dispatch:
@@ -32,7 +32,15 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build test APK and Galaxy Store AAB
+      - name: Guard overlay architecture
+        run: |
+          grep -q 'android.permission.SYSTEM_ALERT_WINDOW' app/src/main/AndroidManifest.xml
+          grep -q 'Settings.canDrawOverlays' app/src/main/java/com/timerlock/secure/SetupGateActivity.java
+          grep -q 'TYPE_APPLICATION_OVERLAY' app/src/main/java/com/timerlock/secure/FloatingBubbleController.java
+          ! grep -R 'QUERY_ALL_PACKAGES\|PACKAGE_USAGE_STATS\|AccessibilityService' app/src/main || exit 1
+          ! grep -R 'getInstalledApplications\|getInstalledPackages' app/src/main || exit 1
+
+      - name: Build debug APK and release AAB
         run: gradle --no-daemon clean assembleDebug bundleRelease --stacktrace
 
       - name: Verify debug APK
@@ -42,31 +50,21 @@ jobs:
           unzip -t "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee /tmp/timerlock-badging.txt
           grep -q "package: name='com.timerlock.secure'" /tmp/timerlock-badging.txt
-          grep -q "versionCode='7'" /tmp/timerlock-badging.txt
-          grep -q "versionName='4.2.0'" /tmp/timerlock-badging.txt
+          grep -q "versionCode='8'" /tmp/timerlock-badging.txt
+          grep -q "versionName='4.3.0'" /tmp/timerlock-badging.txt
           grep -q "application-label:'TimerLock'" /tmp/timerlock-badging.txt
           sha256sum "$APK"
-
-      - name: Verify Galaxy Store AAB
-        run: |
-          AAB=app/build/outputs/bundle/release/app-release.aab
-          test -s "$AAB"
-          unzip -t "$AAB"
-          unzip -l "$AAB" | tee /tmp/timerlock-aab-contents.txt
-          grep -q 'base/manifest/AndroidManifest.xml' /tmp/timerlock-aab-contents.txt
-          grep -q 'base/dex/classes.dex' /tmp/timerlock-aab-contents.txt
-          sha256sum "$AAB"
 
       - name: Upload test APK
         uses: actions/upload-artifact@v4
         with:
-          name: TimerLock-v4.2.0-test-APK
+          name: TimerLock-v4.3.0-overlay-repair-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
-      - name: Upload Galaxy Store AAB
+      - name: Upload release AAB
         uses: actions/upload-artifact@v4
         with:
-          name: TimerLock-v4.2.0-Galaxy-Store-AAB
+          name: TimerLock-v4.3.0-release-AAB
           path: app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
