@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" role="img" aria-label="TimerLock">
+  <rect width="108" height="108" rx="26" fill="#07172b"/>
+  <path fill="#c9d2dc" d="M36 47V35c0-12 8-19 18-19s18 7 18 19v12h-8V35c0-6-4-10-10-10s-10 4-10 10v12z"/>
+  <path fill="#1a2d48" d="M31 43c-4 0-7 4-7 9v30c0 6 4 10 10 10h40c6 0 10-4 10-10V52c0-5-3-9-7-9z"/>
+  <ellipse cx="54" cy="74" rx="26" ry="23" fill="#10233b" stroke="#c8d0db" stroke-width="4"/>
+  <path d="M54 51c14 0 25 10 26 22" fill="none" stroke="#35a7ff" stroke-width="4.5" stroke-linecap="round"/>
+  <path d="M54 61v13l11 7" fill="none" stroke="#eef2f7" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="54" cy="74" r="4.5" fill="#eef2f7"/>
+</svg>
