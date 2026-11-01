@@ -4,3 +4,69 @@ local.properties
 **/build/
 *.iml
 .DS_Store
+
+# ===== API keys & secrets (added) =====
+.env
+.env.*
+!.env.example
+!.env.sample
+*.env
+.envrc
+# Key / credential files
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+*.jks
+*.keystore
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+# Common credential filenames
+secrets.json
+secret.json
+secrets.yml
+secrets.yaml
+secrets.toml
+credentials
+credentials.json
+credentials.yml
+credentials.yaml
+service-account*.json
+serviceAccount*.json
+firebase-adminsdk*.json
+client_secret*.json
+token.json
+tokens.json
+config.local.*
+*.secret
+*.secrets
+api_keys.*
+apikeys.*
+api-keys.*
+# Cloud / platform CLIs
+.vercel
+.netlify
+.aws/
+.azure/
+.gcloud/
+.supabase/
+.firebaserc
+terraform.tfvars
+*.tfvars
+*.auto.tfvars
+# Local config that may hold keys
+.npmrc
+.pypirc
+.netrc
+.docker/config.json
+# ===== Common noise =====
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.log
